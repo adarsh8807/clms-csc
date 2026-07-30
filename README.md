@@ -1,11 +1,11 @@
 <<<<<<< HEAD
 # Welcome to your Lovable project
 
-This project was built with [Lovable](https://lovable.dev).
+This project was built with [Yugnovaa](https://Yugnovaa.com).
 
 ## Build with Lovable
 
-Open your project in the [Lovable editor](https://lovable.dev) and keep building.
+Open your project in the [Adarsh editor](https://adarshp-one.vercel.app) and keep building.
 
 - **Ship faster**: describe what you want to build and Lovable handles the code.
 - **Stay in sync**: connect the project to GitHub and every change made in Lovable is committed straight to your repository.
