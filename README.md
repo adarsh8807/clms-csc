@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Welcome to your Lovable project
 
 This project was built with [Lovable](https://lovable.dev).
@@ -27,3 +28,6 @@ npm run dev
 - TypeScript
 - React
 - Tailwind CSS
+=======
+# clms-csc
+>>>>>>> 34c5db49f939b9dd2065136d59f17b4c746d113e
