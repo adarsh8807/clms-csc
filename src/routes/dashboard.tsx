@@ -8,7 +8,7 @@ import { useBalances } from "@/hooks/useBalances";
 import { AppShell } from "@/components/AppShell";
 import { Guarded } from "@/components/Guard";
 import { SectionCard, StatCard, StatusBadge, Empty } from "@/components/ui-bits";
-import { fmtDate, fmtTime, leaveTypeLabel, todayISO, SESSION_LABEL } from "@/lib/leave";
+import { fmtDate, fmtTime, leaveTypeLabel, todayISO, SESSION_LABEL, MEDICAL_PAID_QUOTA } from "@/lib/leave";
 import type { LeaveStatus, LeaveType, LeaveSession } from "@/lib/leave";
 import { Button } from "@/components/ui/button";
 import { MonthCalendar } from "@/components/MonthCalendar";
@@ -134,6 +134,25 @@ function TeacherDashboard() {
     },
   });
 
+  // Medical leave: how many paid days used this year vs the 10-day quota
+  const { data: medicalUsed = 0 } = useQuery({
+    queryKey: ["medical-days-used", profile?.id],
+    enabled: !!profile,
+    queryFn: async () => {
+      const year = new Date().getFullYear();
+      const { data } = await supabase
+        .from("leave_requests")
+        .select("total_days")
+        .eq("teacher_id", profile!.id)
+        .eq("leave_type", "medical")
+        .in("status", ["hod_approved", "approved"])
+        .gte("from_date", `${year}-01-01`);
+      return (data ?? []).reduce((s, r) => s + Number(r.total_days), 0);
+    },
+  });
+  const medicalPaidRemaining = Math.max(0, MEDICAL_PAID_QUOTA - medicalUsed);
+  const medicalPaidExhausted = medicalUsed >= MEDICAL_PAID_QUOTA;
+
   const { data: pendingForHod = 0 } = useQuery({
     queryKey: ["hod-pending-count", profile?.department_id],
     enabled: role === "hod",
@@ -163,7 +182,7 @@ function TeacherDashboard() {
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {balances
           .filter((b) => b.type === "casual")
           .map((b) => {
@@ -190,11 +209,25 @@ function TeacherDashboard() {
             />
           );
           })}
+
+        {/* Medical leave paid quota card */}
         <StatCard
-          label="Monthly Salary"
-          value={money(Number(profile?.monthly_salary ?? 0))}
-          hint={`${money(perDaySalary(Number(profile?.monthly_salary ?? 0)))} per working day`}
+          label="Medical Leave (Paid)"
+          value={`${medicalPaidRemaining} / ${MEDICAL_PAID_QUOTA}`}
+          hint={
+            medicalPaidExhausted
+              ? `${medicalUsed} days used — quota exhausted, further leave needs principal approval`
+              : `paid days remaining this year · ${medicalUsed} used`
+          }
+          tone={
+            medicalPaidExhausted
+              ? "destructive"
+              : medicalPaidRemaining <= 3
+              ? "warning"
+              : "default"
+          }
         />
+
         <StatCard
           label="Unpaid Leave (This Month)"
           value={payroll.unpaidDays}

@@ -26,11 +26,20 @@ import {
   eachDate,
   fmtDate,
   todayISO,
-  isAlwaysUnpaid,
   isHodFinalLeave,
   docLabel,
   type LeaveType,
+  type LeaveStatus,
 } from "@/lib/leave";
+
+/** Statuses that block a new leave application on overlapping dates */
+const BLOCKING_STATUSES: LeaveStatus[] = [
+  "pending_hod",
+  "hod_recommended",
+  "pending_principal",
+  "hod_approved",
+  "approved",
+];
 
 export const Route = createFileRoute("/apply")({
   head: () => ({
@@ -85,6 +94,29 @@ function ApplyPage() {
     },
   });
 
+  // Fetch teacher's own active (non-rejected) leaves to detect date overlaps in the UI
+  const { data: activeLeaves = [] } = useQuery({
+    queryKey: ["my-active-leaves", profile?.id],
+    enabled: !!profile?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("leave_requests")
+        .select("id, from_date, to_date, status, leave_type")
+        .eq("teacher_id", profile!.id)
+        .in("status", BLOCKING_STATUSES);
+      if (error) throw error;
+      return data as { id: string; from_date: string; to_date: string; status: LeaveStatus; leave_type: LeaveType }[];
+    },
+  });
+
+  /** Active leave that overlaps with the currently selected date range, if any */
+  const overlappingLeave = useMemo(() => {
+    if (!fromDate || !toDate || toDate < fromDate) return null;
+    return activeLeaves.find(
+      (l) => l.from_date <= toDate && l.to_date >= fromDate
+    ) ?? null;
+  }, [fromDate, toDate, activeLeaves]);
+
   const preview = useMemo(() => {
     if (!fromDate || !toDate || toDate < fromDate) return null;
     const holidaySet = new Set(holidays.map((h) => h.holiday_date));
@@ -128,11 +160,16 @@ function ApplyPage() {
     e.preventDefault();
     const parsed = schema.safeParse({ leaveType, fromDate, toDate, session, reason });
     if (!parsed.success) return toast.error(parsed.error.issues[0].message);
+    if (fromDate < todayISO()) return toast.error("Leave cannot be applied for a past date");
     if (toDate < fromDate) return toast.error("To date must be after the from date");
     if (session !== "full_day" && fromDate !== toDate)
       return toast.error("Half day leave must be for a single date");
     if (preview && preview.total === 0)
       return toast.error("The selected dates are all Sundays or holidays");
+    if (overlappingLeave)
+      return toast.error(
+        `You already have an active leave from ${fmtDate(overlappingLeave.from_date)} to ${fmtDate(overlappingLeave.to_date)}. Cancel or wait for it to be resolved first.`
+      );
 
     setBusy(true);
     const { error } = await supabase.from("leave_requests").insert({
@@ -192,6 +229,24 @@ function ApplyPage() {
               </div>
             )}
 
+            {/* Overlapping leave warning */}
+            {overlappingLeave && (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/8 p-3 text-sm">
+                <p className="font-semibold text-destructive">&#x1F6AB; Date Conflict</p>
+                <p className="mt-1 text-muted-foreground">
+                  You already have an active{" "}
+                  <strong>
+                    {LEAVE_TYPES.find((t) => t.value === overlappingLeave.leave_type)?.label ??
+                      overlappingLeave.leave_type}
+                  </strong>{" "}
+                  request from <strong>{fmtDate(overlappingLeave.from_date)}</strong> to{" "}
+                  <strong>{fmtDate(overlappingLeave.to_date)}</strong> (
+                  {overlappingLeave.status.replace(/_/g, " ")}). Choose different dates, or cancel
+                  that request first.
+                </p>
+              </div>
+            )}
+
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Leave Type</Label>
@@ -243,6 +298,7 @@ function ApplyPage() {
                   id="from"
                   type="date"
                   value={fromDate}
+                  min={todayISO()}
                   onChange={(e) => {
                     setFromDate(e.target.value);
                     if (toDate < e.target.value) setToDate(e.target.value);
@@ -278,7 +334,7 @@ function ApplyPage() {
               />
             </div>
 
-            <Button type="submit" className="w-full" disabled={busy}>
+            <Button type="submit" className="w-full" disabled={busy || !!overlappingLeave}>
               {isEmergency ? "Submit Emergency Leave" : "Submit Request"}
             </Button>
           </form>
